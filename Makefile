@@ -23,8 +23,8 @@ rwildcard=$(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(su
 # target
 ######################################
 TARGET = Project
- # Supported Options: VD66GY; IMX335; VD55G1
-SENSOR_LIST = IMX335 VD66GY VD55G1
+ # Supported Options: VD66GY; IMX335; VD55G1; VD1943
+SENSOR_LIST = IMX335 VD66GY VD55G1 VD1943
 
 MODEL_DIR = Model
 BINARY_DIR = Binary
@@ -52,6 +52,7 @@ C_SOURCES += Src/app_enc.c
 C_SOURCES += Src/app_fuseprogramming.c
 C_SOURCES += Src/stm32n6xx_it.c
 C_SOURCES += Model/network.c
+C_SOURCES += Model/stai_network.c
 C_SOURCES += Src/app_cam.c
 C_SOURCES += Src/freertos_bsp.c
 
@@ -102,6 +103,10 @@ C_DEFS += -DUSE_FULL_LL_DRIVER
 C_DEFS += -DVECT_TAB_SRAM
 
 C_DEFS += $(foreach SENSOR, $(SENSOR_LIST), -DUSE_$(SENSOR)_SENSOR)
+
+ifdef APP_VERSION_STRING
+C_DEFS += -DAPP_VERSION_STRING=\"$(APP_VERSION_STRING)\"
+endif
 
 # We only support single model
 C_DEFS += -DTX_MAX_PARALLEL_NETWORKS=1

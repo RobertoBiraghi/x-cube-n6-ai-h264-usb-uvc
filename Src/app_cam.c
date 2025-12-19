@@ -33,6 +33,7 @@ static const char *sensor_names[] = {
   "CMW_VD66GY",
   "CMW_IMX335",
   "CMW_VD55G1",
+  "CMW_VD1943",
 };
 
 static void CAM_setSensorInfo(CMW_Sensor_Name_t sensor)
@@ -63,6 +64,14 @@ static void CAM_setSensorInfo(CMW_Sensor_Name_t sensor)
     venc_width = VENC_VD55G1_WIDTH;
     venc_height = VENC_VD55G1_HEIGHT;
     sensor_name_idx = 3;
+    break;
+  case CMW_VD1943_Sensor:
+    sensor_width = SENSOR_VD1943_WIDTH;
+    sensor_height = SENSOR_VD1943_HEIGHT;
+    sensor_mirror_flip = SENSOR_VD1943_FLIP;
+    venc_width = VENC_VD1943_WIDTH;
+    venc_height = VENC_VD1943_HEIGHT;
+    sensor_name_idx = 4;
     break;
   default:
     assert(0);
@@ -176,8 +185,6 @@ void CAM_Init(void)
   cam_conf.width = sensor_width;
   cam_conf.height = sensor_height;
   cam_conf.fps = CAMERA_FPS;
-  cam_conf.pixel_format = 0; /* Default; Not implemented yet */
-  cam_conf.anti_flicker = 0;
   cam_conf.mirror_flip = sensor_mirror_flip;
   ret = CMW_CAMERA_Init(&cam_conf, NULL);
   assert(ret == CMW_ERROR_NONE);
@@ -226,4 +233,9 @@ int CAM_GetVencHeight()
   assert(venc_height);
 
   return venc_height;
+}
+
+void CMW_CAMERA_PIPE_ErrorCallback(uint32_t pipe)
+{
+  /* FIXME : Need to tune sensor/ipplug so we can remove this implementation */
 }

@@ -35,9 +35,14 @@
 #include "utils.h"
 #include "uvcl.h"
 #include "draw.h"
-#include "network.h"
+#include "stai.h"
+#include "stai_network.h"
 
 #include "figs.h"
+
+#ifndef APP_VERSION_STRING
+#define APP_VERSION_STRING "dev"
+#endif
 
 #define FREERTOS_PRIORITY(p) ((UBaseType_t)((int)tskIDLE_PRIORITY + configMAX_PRIORITIES / 2 + (p)))
 
@@ -65,10 +70,10 @@
 #define VENC_OUT_BUFFER_SIZE (255 * 1024)
 
 /* Model Related Info */
-#define NN_BUFFER_OUT_SIZE LL_ATON_DEFAULT_OUT_1_SIZE_BYTES
+#define NN_BUFFER_OUT_SIZE STAI_NETWORK_OUT_1_SIZE_BYTES
 
-/* Align so we are sure nn_output_buffers[0] and nn_output_buffers[1] are aligned on 32 bytes */
-#define NN_BUFFER_OUT_SIZE_ALIGN ALIGN_VALUE(NN_BUFFER_OUT_SIZE, 32)
+/* Align so we are sure nn_output_buffers[0] and nn_output_buffers[1] are aligned on STAI_NETWORK_OUT_1_ALIGNMENT bytes */
+#define NN_BUFFER_OUT_SIZE_ALIGN ALIGN_VALUE(NN_BUFFER_OUT_SIZE, STAI_NETWORK_OUT_1_ALIGNMENT)
 
 typedef struct {
   int last;
@@ -140,7 +145,7 @@ static int capture_buffer_disp_idx = 1;
 static int capture_buffer_capt_idx = 0;
 
 /* model */
-LL_ATON_DECLARE_NAMED_NN_INSTANCE_AND_INTERFACE(Default);
+static uint8_t network_ctx[STAI_NETWORK_CONTEXT_SIZE] ALIGN_32;
  /* nn input buffers */
 static uint8_t nn_input_buffers[2][NN_WIDTH * NN_HEIGHT * NN_BPP] ALIGN_32 IN_PSRAM;
 static bqueue_t nn_input_queue;
@@ -363,29 +368,30 @@ static void app_main_pipe_vsync_event()
 
 static void nn_thread_fct(void *arg)
 {
-  const LL_Buffer_InfoTypeDef *nn_out_info = LL_ATON_Output_Buffers_Info_Default();
-  const LL_Buffer_InfoTypeDef *nn_in_info = LL_ATON_Input_Buffers_Info_Default();
+  stai_network_info info;
   uint32_t nn_period_ms;
   uint32_t nn_period[2];
   uint8_t *nn_pipe_dst;
-  uint32_t nn_out_len;
-  uint32_t nn_in_len;
   uint32_t total_ts;
   uint32_t ts;
   int ret;
 
   (void) nn_period_ms;
 
-  /* Initialize Cube.AI/ATON ... */
-  LL_ATON_RT_RuntimeInit();
-  /* ... and model instance */
-  LL_ATON_RT_Init_Network(&NN_Instance_Default);
+  /* initialize runtime */
+  ret = stai_runtime_init();
+  assert(ret == STAI_SUCCESS);
+  /* init model instance */
+  ret = stai_network_init(network_ctx);
+  assert(ret == STAI_SUCCESS);
 
   /* setup inout buffers and size */
-  nn_in_len = LL_Buffer_len(&nn_in_info[0]);
-  nn_out_len = LL_Buffer_len(&nn_out_info[0]);
+  ret = stai_network_get_info(network_ctx, &info);
+  assert(ret == STAI_SUCCESS);
+  assert(info.n_inputs == 1);
+  assert(info.n_outputs == 1);
   //printf("nn_out_len = %d\n", nn_out_len);
-  assert(nn_out_len == NN_BUFFER_OUT_SIZE);
+  assert(info.outputs[0].size_bytes == NN_BUFFER_OUT_SIZE);
 
   /*** App Loop ***************************************************************/
   nn_period[1] = HAL_GetTick();
@@ -397,6 +403,8 @@ static void nn_thread_fct(void *arg)
   {
     uint8_t *capture_buffer;
     uint8_t *output_buffer;
+    stai_ptr outputs[1];
+    stai_ptr inputs[1];
 
     nn_period[0] = nn_period[1];
     nn_period[1] = HAL_GetTick();
@@ -411,12 +419,15 @@ static void nn_thread_fct(void *arg)
     /* run ATON inference */
     ts = HAL_GetTick();
      /* Note that we don't need to clean/invalidate those input buffers since they are only access in hardware */
-    ret = LL_ATON_Set_User_Input_Buffer_Default(0, capture_buffer, nn_in_len);
+    inputs[0] = capture_buffer;
+    ret = stai_network_set_inputs(network_ctx, inputs, ARRAY_NB(inputs));
+    assert(ret == STAI_SUCCESS);
      /* Invalidate output buffer before Hw access it */
-    CACHE_OP(SCB_InvalidateDCache_by_Addr(output_buffer, nn_out_len));
-    ret = LL_ATON_Set_User_Output_Buffer_Default(0, output_buffer, nn_out_len);
-    assert(ret == LL_ATON_User_IO_NOERROR);
-    Run_Inference(&NN_Instance_Default);
+    CACHE_OP(SCB_InvalidateDCache_by_Addr(output_buffer, sizeof(nn_output_buffers[0])));
+    outputs[0] = output_buffer;
+    ret = stai_network_set_outputs(network_ctx, outputs, ARRAY_NB(outputs));
+    assert(ret == STAI_SUCCESS);
+    Run_Inference(network_ctx);
     time_stat_update(&stat_info.nn_inference_time, HAL_GetTick() - ts);
 
     /* release buffers */
@@ -653,6 +664,7 @@ static int display_new_frame(od_pp_out_t *pp_out)
 static void dp_thread_fct(void *arg)
 {
   od_yolov2_pp_static_param_t pp_params;
+  stai_network_info info;
   od_pp_out_t pp_output;
   uint32_t total_ts;
   void *pp_input;
@@ -661,7 +673,9 @@ static void dp_thread_fct(void *arg)
   int ret;
 
   /* setup post process */
-  app_postprocess_init(&pp_params, &NN_Instance_Default);
+  ret = stai_network_get_info(network_ctx, &info);
+  assert(ret == STAI_SUCCESS);
+  app_postprocess_init(&pp_params, &info);
   while (1)
   {
     uint8_t *output_buffer;
@@ -720,6 +734,24 @@ static void app_uvc_frame_release(struct uvcl_callbacks *cbs, void *frame)
   buffer_flying = 0;
 }
 
+static void app_display_info_header()
+{
+  printf("========================================\n");
+  printf("x-cube-n6-ai-h264-usb-uvc v2.2.0 (%s)\n", APP_VERSION_STRING);
+  printf("Build date & time: %s %s\n", __DATE__, __TIME__);
+#if defined(__GNUC__)
+  printf("Compiler: GCC %d.%d.%d\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+#elif defined(__ICCARM__)
+  printf("Compiler: IAR EWARM %d.%d.%d\n", __VER__ / 1000000, (__VER__ / 1000) % 1000 ,__VER__ % 1000);
+#else
+  printf("Compiler: Unknown\n");
+#endif
+  printf("HAL: %lu.%lu.%lu\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
+  printf("STEdgeAI Tools: %d.%d.%d\n", STAI_TOOLS_VERSION_MAJOR, STAI_TOOLS_VERSION_MINOR, STAI_TOOLS_VERSION_MICRO);
+  printf("NN model: %s\n", STAI_NETWORK_ORIGIN_MODEL_NAME);
+  printf("========================================\n");
+}
+
 void app_run()
 {
   UBaseType_t isp_priority = FREERTOS_PRIORITY(2);
@@ -730,7 +762,7 @@ void app_run()
   TaskHandle_t hdl;
   int ret;
 
-  printf("Init application\n");
+  app_display_info_header();
   /* Enable DWT so DWT_CYCCNT works when debugger not attached */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
 
