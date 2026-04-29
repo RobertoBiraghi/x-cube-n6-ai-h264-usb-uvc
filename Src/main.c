@@ -132,7 +132,10 @@ static void Setup_Mpu()
 
 static void NPUCache_config()
 {
-  npu_cache_enable();
+	/* Disabled in pure streaming firmware:
+	* no AI runtime / no NPU inference path currently used.
+	*/
+	//npu_cache_enable();
 }
 
 static void Security_Config()
@@ -302,12 +305,14 @@ static void CONSOLE_Config()
   }
 }
 
+#if 0
 static void DMA2D_Config()
 {
   __HAL_RCC_DMA2D_CLK_ENABLE();
   __HAL_RCC_DMA2D_FORCE_RESET();
   __HAL_RCC_DMA2D_RELEASE_RESET();
 }
+#endif
 
 static int main_freertos()
 {
@@ -348,7 +353,8 @@ static void main_thread_fct(void *arg)
   NPURam_enable();
   Fuse_Programming();
 
-  DMA2D_Config();
+  // pure streaming not use dma2d and draw.c
+  //DMA2D_Config();
 
   NPUCache_config();
 

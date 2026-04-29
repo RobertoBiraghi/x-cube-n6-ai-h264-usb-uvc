@@ -193,7 +193,6 @@ void CAM_Init(void)
 
   DCMIPP_IpPlugInit(CMW_CAMERA_GetDCMIPPHandle());
   DCMIPP_PipeInitDisplay(cam_conf.width, cam_conf.height);
-  DCMIPP_PipeInitNn(cam_conf.width, cam_conf.height);
   DCMIPP_ReduceSpurious(CMW_CAMERA_GetDCMIPPHandle());
 }
 
