@@ -225,7 +225,30 @@ static void app_uvc_frame_release(struct uvcl_callbacks *cbs, void *frame)
   buffer_flying = 0;
 }
 
-static void app_display_info_header()
+static const char *app_stream_format_to_string(APP_StreamFormat_t format)
+{
+  switch (format)
+  {
+    case APP_STREAM_FMT_H264:
+      return "H264";
+    case APP_STREAM_FMT_JPEG:
+      return "JPEG";
+    case APP_STREAM_FMT_RGB565:
+      return "RGB565";
+    case APP_STREAM_FMT_RGB888:
+      return "RGB888";
+    case APP_STREAM_FMT_YUV422:
+      return "YUV422";
+    case APP_STREAM_FMT_YUV420:
+      return "YUV420";
+    case APP_STREAM_FMT_GRAY8:
+      return "GRAY8";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static void app_display_info_header(const APP_StreamConfig_t *p_stream_cfg)
 {
   printf("========================================\n");
   printf("stm32n6 universal uvc camera (%s)\n", APP_VERSION_STRING);
@@ -238,7 +261,16 @@ static void app_display_info_header()
   printf("Compiler: Unknown\n");
 #endif
   printf("HAL: %lu.%lu.%lu\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
-  printf("Streaming mode: H264 over UVC\n");
+
+  if (p_stream_cfg != NULL)
+  {
+    printf("Streaming mode: %s over UVC\n", app_stream_format_to_string(p_stream_cfg->format));
+    printf("Stream config : %ux%u @ %lu fps\n",
+           p_stream_cfg->width,
+           p_stream_cfg->height,
+           p_stream_cfg->fps);
+  }
+
   printf("========================================\n");
 }
 
@@ -248,23 +280,11 @@ void app_run()
   UBaseType_t stream_priority = FREERTOS_PRIORITY(1);
   UVCL_Conf_t uvcl_conf = { 0 };
   ENC_Conf_t enc_conf = { 0 };
+  APP_StreamConfig_t stream_cfg;
+  const APP_StreamConfig_t *p_stream_cfg;
   TaskHandle_t hdl;
   int ret;
 
-  APP_StreamConfig_t stream_cfg;
-  const APP_StreamConfig_t *p_stream_cfg;
-
-  stream_cfg.width = VENC_WIDTH;
-  stream_cfg.height = VENC_HEIGHT;
-  stream_cfg.fps = CAMERA_FPS;
-  stream_cfg.format = APP_STREAM_FMT_H264;
-
-  ret = APP_Stream_Init(&stream_cfg);
-  assert(ret == 0);
-
-  p_stream_cfg = APP_Stream_GetConfig();
-
-  app_display_info_header();
   /* Enable DWT so DWT_CYCCNT works when debugger not attached */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
 
@@ -284,6 +304,22 @@ void app_run()
   /*** Camera Init ************************************************************/  
   CAM_Init();
 
+  stream_cfg.width = VENC_WIDTH;
+  stream_cfg.height = VENC_HEIGHT;
+  stream_cfg.fps = CAMERA_FPS;
+  stream_cfg.format = APP_STREAM_FMT_H264;
+
+  ret = APP_Stream_Init(&stream_cfg);
+  assert(ret == 0);
+
+  ret = APP_Stream_Start();
+  assert(ret == 0);
+
+  p_stream_cfg = APP_Stream_GetConfig();
+  assert(p_stream_cfg != NULL);
+
+  app_display_info_header(p_stream_cfg);
+
   /* Encoder init */
   enc_conf.width = p_stream_cfg->width;
   enc_conf.height = p_stream_cfg->height;
@@ -294,7 +330,8 @@ void app_run()
   uvcl_conf.streams[0].width = p_stream_cfg->width;
   uvcl_conf.streams[0].height = p_stream_cfg->height;
   uvcl_conf.streams[0].fps = p_stream_cfg->fps;
-  uvcl_conf.streams[0].payload_type = UVCL_PAYLOAD_FB_H264;
+  ret = APP_Stream_FormatToUvclPayload(p_stream_cfg->format, &uvcl_conf.streams[0].payload_type);
+  assert(ret == 0);
   uvcl_conf.streams_nb = 1;
   uvcl_conf.is_immediate_mode = 1;
   uvcl_cbs.streaming_active = app_uvc_streaming_active;

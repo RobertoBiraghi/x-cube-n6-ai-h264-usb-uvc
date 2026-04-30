@@ -1,8 +1,19 @@
-/*
- * app_stream.c
+/**
+ ******************************************************************************
+ * @file    app_stream.h
+ * @author  SRA Application Team
  *
- *  Created on: Apr 29, 2026
- *      Author: biraghir
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
  */
 
 #ifndef APP_STREAM_H
@@ -29,8 +40,15 @@ typedef struct
   APP_StreamFormat_t format;
 } APP_StreamConfig_t;
 
+
 int APP_Stream_Init(const APP_StreamConfig_t *p_cfg);
 const APP_StreamConfig_t *APP_Stream_GetConfig(void);
+int APP_Stream_FormatToUvclPayload(APP_StreamFormat_t format, int *p_payload);
+
+int APP_Stream_Start(void);
+int APP_Stream_Stop(void);
+int APP_Stream_IsStarted(void);
+int APP_Stream_IsInitialized(void);
 
 #endif /* APP_STREAM_H */
 
