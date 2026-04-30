@@ -33,6 +33,7 @@
 #include "app_enc.h"
 #include "utils.h"
 #include "uvcl.h"
+#include "app_stream.h"
 
 #ifndef APP_VERSION_STRING
 #define APP_VERSION_STRING "dev"
@@ -250,6 +251,19 @@ void app_run()
   TaskHandle_t hdl;
   int ret;
 
+  APP_StreamConfig_t stream_cfg;
+  const APP_StreamConfig_t *p_stream_cfg;
+
+  stream_cfg.width = VENC_WIDTH;
+  stream_cfg.height = VENC_HEIGHT;
+  stream_cfg.fps = CAMERA_FPS;
+  stream_cfg.format = APP_STREAM_FMT_H264;
+
+  ret = APP_Stream_Init(&stream_cfg);
+  assert(ret == 0);
+
+  p_stream_cfg = APP_Stream_GetConfig();
+
   app_display_info_header();
   /* Enable DWT so DWT_CYCCNT works when debugger not attached */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -271,15 +285,15 @@ void app_run()
   CAM_Init();
 
   /* Encoder init */
-  enc_conf.width = VENC_WIDTH;
-  enc_conf.height = VENC_HEIGHT;
-  enc_conf.fps = CAMERA_FPS;
+  enc_conf.width = p_stream_cfg->width;
+  enc_conf.height = p_stream_cfg->height;
+  enc_conf.fps = p_stream_cfg->fps;;
   ENC_Init(&enc_conf);
 
   /* Uvc init */
-  uvcl_conf.streams[0].width = VENC_WIDTH;
-  uvcl_conf.streams[0].height = VENC_HEIGHT;
-  uvcl_conf.streams[0].fps = CAMERA_FPS;
+  uvcl_conf.streams[0].width = p_stream_cfg->width;
+  uvcl_conf.streams[0].height = p_stream_cfg->height;
+  uvcl_conf.streams[0].fps = p_stream_cfg->fps;
   uvcl_conf.streams[0].payload_type = UVCL_PAYLOAD_FB_H264;
   uvcl_conf.streams_nb = 1;
   uvcl_conf.is_immediate_mode = 1;
