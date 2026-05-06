@@ -44,6 +44,7 @@ static StaticTask_t cb_thread;
 static StackType_t cb_tread_stack[configMINIMAL_STACK_SIZE];
 static SemaphoreHandle_t cb_sem;
 static StaticSemaphore_t cb_sem_buffer;
+static int usbx_rtos_initialized = 0;
 #endif
 
 static int is_hs()
@@ -412,10 +413,32 @@ int UVCL_usbx_init(UVCL_Ctx_t *p_ctx, PCD_HandleTypeDef *pcd_handle, PCD_TypeDef
     return ret;
 
 #ifdef  UVCL_USBX_USE_FREERTOS
-  UVCL_usbx_freertos(pcd_instance);
+  if (!usbx_rtos_initialized)
+  {
+    UVCL_usbx_freertos(pcd_instance);
+    usbx_rtos_initialized = 1;
+  }
 #endif
 
   return ux_dcd_stm32_initialize((ULONG)pcd_instance, (ULONG)pcd_handle);
+}
+
+int UVCL_usbx_deinit(void)
+{
+  UINT ret;
+
+  if (_ux_system_slave == UX_NULL)
+  {
+    return 0;
+  }
+
+  ret = _ux_device_stack_uninitialize();
+  if (ret != UX_SUCCESS)
+  {
+    return -1;
+  }
+
+  return 0;
 }
 
 #if defined(UX_DEVICE_STANDALONE)

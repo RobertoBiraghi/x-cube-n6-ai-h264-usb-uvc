@@ -325,9 +325,19 @@ static int app_switch_stream_preset(int preset_id)
     goto error;
   }
 
+  printf("Reconfig: ENC_DeInit\n");
   ENC_DeInit();
 
+  printf("Reconfig: CAM_DeInit\n");
   ret = CAM_DeInit();
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  printf("Reconfig: UVCL_Deinit\n");
+  ret = UVCL_Deinit();
+  printf("Reconfig: UVCL_Deinit ret=%d\n", ret);
   if (ret != 0)
   {
     goto error;
@@ -339,6 +349,7 @@ static int app_switch_stream_preset(int preset_id)
     goto error;
   }
 
+  printf("Reconfig: CAM_Init\n");
   CAM_Init();
 
   ret = APP_Stream_UpdateConfig(&new_stream_cfg);
@@ -353,7 +364,16 @@ static int app_switch_stream_preset(int preset_id)
     goto error;
   }
 
+  printf("Reconfig: UVCL_Init\n");
+  ret = app_init_uvc(p_stream_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  printf("Reconfig: ENC_Init\n");
   ret = app_apply_stream_runtime_config(p_stream_cfg);
+  printf("Reconfig: UVCL_Init ret=%d\n", ret);
   if (ret != 0)
   {
     goto error;
@@ -363,6 +383,7 @@ static int app_switch_stream_preset(int preset_id)
   capture_buffer_capt_idx = 0;
   force_intra = 1;
   buffer_flying = 0;
+  printf("Reconfig: CAM_DisplayPipe_Start\n");
   CAM_DisplayPipe_Start(capture_buffer[0], CMW_MODE_CONTINUOUS);
 
   ret = APP_Stream_Start();
@@ -470,17 +491,37 @@ static void app_uvc_streaming_active(struct uvcl_callbacks *cbs, UVCL_StreamConf
 {
   (void)cbs;
   (void)stream;
+  //force_intra = 1;
+  //uvc_is_active = 1;
+  //printf("\r\n Active\n");
+  printf("\r\nUVC streaming active callback\r\n");
+
+  /*
+   * Ensure stream submission state is reset when a new host-side
+   * streaming session starts.
+   */
+  buffer_flying = 0;
   force_intra = 1;
   uvc_is_active = 1;
-  printf("\r\n Active\n");
+
+  //printf("\r\n Active\n");
   BSP_LED_On(LED_RED);
 }
 
 static void app_uvc_streaming_inactive(struct uvcl_callbacks *cbs)
 {
   (void)cbs;
+  //uvc_is_active = 0;
+  //printf("\r\n Inactive \n");
+
+  printf("\r\nUVC streaming inactive callback\r\n");
+
+  /*
+   * Clear submission state on host-side stream stop.
+   */
   uvc_is_active = 0;
-  printf("\r\n Inactive \n");
+  buffer_flying = 0;
+
   BSP_LED_Off(LED_RED);
 }
 
@@ -489,7 +530,17 @@ static void app_uvc_frame_release(struct uvcl_callbacks *cbs, void *frame)
 
   (void)cbs;
   (void)frame;
-  assert(buffer_flying);
+  //assert(buffer_flying);
+
+  /*
+   * During stop/restart transitions, a delayed release callback may arrive
+   * after the local submission state has already been reset.
+   */
+  if (!buffer_flying)
+  {
+	  printf("Frame release received while no buffer was marked flying\r\n");
+	  return;
+  }
 
   buffer_flying = 0;
 }

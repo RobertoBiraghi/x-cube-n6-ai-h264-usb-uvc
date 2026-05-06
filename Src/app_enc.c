@@ -196,6 +196,8 @@ void ENC_Init(ENC_Conf_t *p_conf)
   int target_bitrate;
   int ret;
 
+  venc_hw_allocator_pos = venc_hw_allocator_buffer;
+  memset(p_ctx, 0, sizeof(*p_ctx));
   memset(&config, 0, sizeof(config));
   p_ctx->gop_len = p_conf->fps - 1;
   /* init encoder */
@@ -245,10 +247,16 @@ void ENC_Init(ENC_Conf_t *p_conf)
 void ENC_DeInit()
 {
   struct VENC_Context *p_ctx = &VENC_Instance;
-  int ret;
+  int ret = H264ENC_OK;
 
-  ret = H264EncRelease(p_ctx->hdl);
-  assert(ret == H264ENC_OK);
+  if (p_ctx->hdl != NULL)
+  {
+    ret = H264EncRelease(p_ctx->hdl);
+    assert(ret == H264ENC_OK);
+  }
+
+  memset(p_ctx, 0, sizeof(*p_ctx));
+  venc_hw_allocator_pos = venc_hw_allocator_buffer;
 }
 
 int ENC_EncodeFrame(uint8_t *p_in, uint8_t *p_out, size_t out_len, int is_intra_force)

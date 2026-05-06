@@ -600,6 +600,7 @@ int UVCL_Init(PCD_TypeDef *pcd_instance, UVCL_Conf_t *conf_given, UVCL_Callbacks
   return HAL_PCD_Start(&uvcl_pcd_handle);
 }
 
+#if 0
 int UVCL_Deinit()
 {
   assert(0);
@@ -608,6 +609,65 @@ int UVCL_Deinit()
 
   return -1;
 }
+#else
+int UVCL_Deinit(void)
+{
+  UVCL_Ctx_t *p_ctx = p_ctx_single;
+  int ret;
+
+  if (p_ctx == NULL)
+  {
+    return 0;
+  }
+
+  p_ctx->state = UVCL_STATUS_STOP;
+
+  if (p_ctx->on_fly_ctx)
+  {
+    UVCL_AbortOnFlyCtx(p_ctx);
+  }
+
+  if (p_ctx->p_frame)
+  {
+    p_ctx->cbs->frame_release(p_ctx->cbs, p_ctx->p_frame);
+    p_ctx->p_frame = NULL;
+  }
+
+  ret = HAL_PCD_Stop(&uvcl_pcd_handle);
+  if (ret != HAL_OK)
+  {
+    return -1;
+  }
+
+#ifdef UVC_LIB_USE_USBX
+  ret = UVCL_usbx_deinit();
+  if (ret != 0)
+  {
+    return ret;
+  }
+#endif
+
+#ifdef UVC_LIB_USE_STM32_USBD
+  ret = UVCL_stm32_usbd_deinit();
+  if (ret != 0)
+  {
+    return ret;
+  }
+#endif
+
+  ret = HAL_PCD_DeInit(&uvcl_pcd_handle);
+  if (ret != HAL_OK)
+  {
+    return -1;
+  }
+
+  memset(&ctx, 0, sizeof(ctx));
+  memset(&uvcl_pcd_handle, 0, sizeof(uvcl_pcd_handle));
+  p_ctx_single = NULL;
+
+  return 0;
+}
+#endif
 
 void UVCL_IRQHandler()
 {
