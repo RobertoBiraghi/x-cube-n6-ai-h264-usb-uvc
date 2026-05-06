@@ -36,6 +36,29 @@ static const char *sensor_names[] = {
   "CMW_VD1943",
 };
 
+static CAM_StreamConfig_t requested_stream_cfg =
+{
+  .width = CAM_DEFAULT_STREAM_WIDTH,
+  .height = CAM_DEFAULT_STREAM_HEIGHT,
+  .fps = CAMERA_FPS
+};
+
+int CAM_SetRequestedStreamConfig(const CAM_StreamConfig_t *p_cfg)
+{
+  if (p_cfg == NULL)
+  {
+    return -1;
+  }
+
+  if ((p_cfg->width == 0U) || (p_cfg->height == 0U) || (p_cfg->fps == 0U))
+  {
+    return -1;
+  }
+
+  requested_stream_cfg = *p_cfg;
+  return 0;
+}
+
 static void CAM_setSensorInfo(CMW_Sensor_Name_t sensor)
 {
   int sensor_name_idx = 0;
@@ -79,18 +102,21 @@ static void CAM_setSensorInfo(CMW_Sensor_Name_t sensor)
   printf("Detected %s\n", sensor_names[sensor_name_idx]);
 }
 
-/* Keep display output aspect ratio using crop area */
-static void CAM_InitCropConfig(CMW_Manual_roi_area_t *roi, int sensor_width, int sensor_height)
+static void CAM_InitCropConfig(CMW_Manual_roi_area_t *roi,
+                               int sensor_width,
+                               int sensor_height,
+                               int output_width,
+                               int output_height)
 {
-  const float ratiox = (float)sensor_width / VENC_WIDTH;
-  const float ratioy = (float)sensor_height / VENC_HEIGHT;
+  const float ratiox = (float)sensor_width / output_width;
+  const float ratioy = (float)sensor_height / output_height;
   const float ratio = MIN(ratiox, ratioy);
 
   assert(ratio >= 1);
   assert(ratio < 64);
 
-  roi->width = (uint32_t) MIN(VENC_WIDTH * ratio, sensor_width);
-  roi->height = (uint32_t) MIN(VENC_HEIGHT * ratio, sensor_height);
+  roi->width = (uint32_t) MIN(output_width * ratio, sensor_width);
+  roi->height = (uint32_t) MIN(output_height * ratio, sensor_height);
   roi->offset_x = (sensor_width - roi->width + 1) / 2;
   roi->offset_y = (sensor_height - roi->height + 1) / 2;
 }
@@ -101,36 +127,21 @@ static void DCMIPP_PipeInitDisplay(int sensor_width, int sensor_height)
   uint32_t hw_pitch;
   int ret;
 
-  assert(VENC_WIDTH >= VENC_HEIGHT);
+  assert(requested_stream_cfg.width >= requested_stream_cfg.height);
 
-  dcmipp_conf.output_width = VENC_WIDTH;
-  dcmipp_conf.output_height = VENC_HEIGHT;
+  dcmipp_conf.output_width = requested_stream_cfg.width;
+  dcmipp_conf.output_height = requested_stream_cfg.height;
   dcmipp_conf.output_format = CAPTURE_FORMAT;
   dcmipp_conf.output_bpp = CAPTURE_BPP;
   dcmipp_conf.mode = CMW_Aspect_ratio_manual_roi;
   dcmipp_conf.enable_swap = 0;
   dcmipp_conf.enable_gamma_conversion = 0;
-  CAM_InitCropConfig(&dcmipp_conf.manual_conf, sensor_width, sensor_height);
+  CAM_InitCropConfig(&dcmipp_conf.manual_conf,
+                     sensor_width,
+                     sensor_height,
+                     requested_stream_cfg.width,
+                     requested_stream_cfg.height);
   ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE1, &dcmipp_conf, &hw_pitch);
-  assert(ret == HAL_OK);
-  assert(hw_pitch == dcmipp_conf.output_width * dcmipp_conf.output_bpp);
-}
-
-static void DCMIPP_PipeInitNn(int sensor_width, int sensor_height)
-{
-  CMW_DCMIPP_Conf_t dcmipp_conf;
-  uint32_t hw_pitch;
-  int ret;
-
-  dcmipp_conf.output_width = NN_WIDTH;
-  dcmipp_conf.output_height = NN_HEIGHT;
-  dcmipp_conf.output_format = NN_FORMAT;
-  dcmipp_conf.output_bpp = NN_BPP;
-  dcmipp_conf.mode = CMW_Aspect_ratio_manual_roi;
-  dcmipp_conf.enable_swap = 1;
-  dcmipp_conf.enable_gamma_conversion = 0;
-  CAM_InitCropConfig(&dcmipp_conf.manual_conf, sensor_width, sensor_height);
-  ret = CMW_CAMERA_SetPipeConfig(DCMIPP_PIPE2, &dcmipp_conf, &hw_pitch);
   assert(ret == HAL_OK);
   assert(hw_pitch == dcmipp_conf.output_width * dcmipp_conf.output_bpp);
 }
@@ -184,7 +195,8 @@ void CAM_Init(void)
   /* Let sensor driver choose which width/height to use */
   cam_conf.width = sensor_width;
   cam_conf.height = sensor_height;
-  cam_conf.fps = CAMERA_FPS;
+  //cam_conf.fps = CAMERA_FPS;
+  cam_conf.fps = requested_stream_cfg.fps;
   cam_conf.mirror_flip = sensor_mirror_flip;
   ret = CMW_CAMERA_Init(&cam_conf, NULL);
   assert(ret == CMW_ERROR_NONE);
@@ -194,6 +206,16 @@ void CAM_Init(void)
   DCMIPP_IpPlugInit(CMW_CAMERA_GetDCMIPPHandle());
   DCMIPP_PipeInitDisplay(cam_conf.width, cam_conf.height);
   DCMIPP_ReduceSpurious(CMW_CAMERA_GetDCMIPPHandle());
+  venc_width = requested_stream_cfg.width;
+  venc_height = requested_stream_cfg.height;
+}
+
+int CAM_DeInit(void){
+	int ret;
+
+	ret = CMW_CAMERA_DeInit();
+	assert(ret == CMW_ERROR_NONE);
+	return ret;
 }
 
 void CAM_DisplayPipe_Start(uint8_t *display_pipe_dst, uint32_t cam_mode)
@@ -203,6 +225,17 @@ void CAM_DisplayPipe_Start(uint8_t *display_pipe_dst, uint32_t cam_mode)
   ret = CMW_CAMERA_Start(DCMIPP_PIPE1, display_pipe_dst, cam_mode);
   assert(ret == CMW_ERROR_NONE);
 }
+
+#if 0
+void CAM_DisplayPipe_Stop(void)
+{
+  int ret;
+
+  /* Ferma l'acquisizione sulla Pipe del DCMIPP */
+  ret = CMW_CAMERA_Stop(DCMIPP_PIPE1);
+  assert(ret == CMW_ERROR_NONE);
+}
+#endif
 
 void CAM_NNPipe_Start(uint8_t *nn_pipe_dst, uint32_t cam_mode)
 {

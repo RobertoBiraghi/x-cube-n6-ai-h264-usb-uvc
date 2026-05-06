@@ -58,6 +58,13 @@
 #define VENC_OUT_BUFFER_SIZE (255 * 1024)
 
 /* Globals */
+#define APP_STREAM_PRESET_HD   0
+#define APP_STREAM_PRESET_VGA  1
+
+#define APP_STREAM_PRESET APP_STREAM_PRESET_HD
+
+static int g_app_stream_preset = APP_STREAM_PRESET;
+static volatile int app_stream_reconfig_in_progress;
 
 /* capture buffers */
 static uint8_t capture_buffer[CAPTURE_BUFFER_NB][VENC_MAX_WIDTH * VENC_MAX_HEIGHT * CAPTURE_BPP] ALIGN_32 IN_PSRAM;
@@ -89,6 +96,14 @@ static StaticTask_t isp_thread;
 static StackType_t isp_thread_stack[2 *configMINIMAL_STACK_SIZE];
 static SemaphoreHandle_t isp_sem;
 static StaticSemaphore_t isp_sem_buffer;
+
+__attribute__((section(".noinit"))) uint32_t saved_preset;
+
+
+static void app_display_info_header(const APP_StreamConfig_t *p_stream_cfg);
+static void app_fill_stream_preset(APP_StreamConfig_t *p_cfg, int preset_id);
+static int app_apply_stream_runtime_config(const APP_StreamConfig_t *p_stream_cfg);
+static int app_init_uvc(const APP_StreamConfig_t *p_stream_cfg);
 
 static int is_cache_enable()
 {
@@ -138,12 +153,14 @@ static int send_h264_frame(uint8_t *p_buffer, int is_intra_force)
   len = ENC_EncodeFrame(p_buffer, venc_out_buffer, VENC_OUT_BUFFER_SIZE, is_intra_force);
   if (len <= 0)
   {
+	printf("ENC_EncodeFrame failed, len=%d\n", len);
     return -1;
   }
 
   if (buffer_flying)
   {
-    force_intra = 1;
+	printf("Dropping frame: buffer still flying\n");
+	force_intra = 1;
     return -1;
   }
 
@@ -153,11 +170,250 @@ static int send_h264_frame(uint8_t *p_buffer, int is_intra_force)
   ret = UVCL_ShowFrame(uvc_in_buffers, len);
   if (ret != 0)
   {
+	printf("UVCL_ShowFrame failed, ret=%d, len=%d\n", ret, len);
     buffer_flying = 0;
     return -1;
   }
 
   return 0;
+}
+
+#if 0
+static int app_switch_stream_preset(int preset_id)
+{
+  APP_StreamConfig_t new_stream_cfg;
+  CAM_StreamConfig_t new_cam_cfg;
+  const APP_StreamConfig_t *p_stream_cfg;
+  int ret;
+
+  if (app_stream_reconfig_in_progress)
+  {
+	 printf("Preset switch ignored while reconfiguration is already in progress\n");
+	 return -1;
+  }
+
+  if (uvc_is_active)
+  {
+    printf("Preset switch ignored while UVC stream is active\n");
+    return -1;
+  }
+
+  if (preset_id == g_app_stream_preset)
+  {
+    return 0;
+  }
+
+  app_stream_reconfig_in_progress = 1;
+
+  ret = APP_Stream_Stop();
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  //CAM_DisplayPipe_Stop();
+
+  ENC_DeInit();
+  CAM_DeInit();
+#if 0
+  /* Not working*/
+  UVCL_Deinit();
+#endif
+
+  app_fill_stream_preset(&new_stream_cfg, preset_id);
+
+  new_cam_cfg.width = new_stream_cfg.width;
+  new_cam_cfg.height = new_stream_cfg.height;
+  new_cam_cfg.fps = new_stream_cfg.fps;
+
+
+  ret = CAM_SetRequestedStreamConfig(&new_cam_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  CAM_Init();
+
+  ret = APP_Stream_UpdateConfig(&new_stream_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  p_stream_cfg = APP_Stream_GetConfig();
+  if (p_stream_cfg == NULL)
+  {
+    goto error;
+  }
+
+#if 0
+  /* if use UVCL_Deninit but to now not working */
+  ret = app_init_uvc(p_stream_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+#endif
+
+  ret = app_apply_stream_runtime_config(p_stream_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  CAM_DisplayPipe_Start(capture_buffer[0], CMW_MODE_CONTINUOUS);
+
+  ret = APP_Stream_Start();
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  g_app_stream_preset = preset_id;
+  app_stream_reconfig_in_progress = 0;
+
+  printf("\nSwitched stream preset to %d\n", preset_id);
+  app_display_info_header(p_stream_cfg);
+
+  return 0;
+
+error:
+  app_stream_reconfig_in_progress = 0;
+  printf("Preset switch failed\n");
+  return -1;
+}
+#else
+
+static int app_switch_stream_preset(int preset_id)
+{
+  APP_StreamConfig_t new_stream_cfg;
+  CAM_StreamConfig_t new_cam_cfg;
+  const APP_StreamConfig_t *p_stream_cfg;
+  int ret;
+
+  if (app_stream_reconfig_in_progress)
+  {
+    printf("Preset switch ignored while reconfiguration is already in progress\n");
+    return -1;
+  }
+
+  if (uvc_is_active)
+  {
+    printf("Preset switch ignored while UVC stream is active\n");
+    return -1;
+  }
+
+  if (preset_id == g_app_stream_preset)
+  {
+    return 0;
+  }
+
+  app_stream_reconfig_in_progress = 1;
+
+  app_fill_stream_preset(&new_stream_cfg, preset_id);
+
+  new_cam_cfg.width = new_stream_cfg.width;
+  new_cam_cfg.height = new_stream_cfg.height;
+  new_cam_cfg.fps = new_stream_cfg.fps;
+
+  printf("Switching preset %d -> %d\n", g_app_stream_preset, preset_id);
+
+  ret = APP_Stream_Stop();
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  ENC_DeInit();
+
+  ret = CAM_DeInit();
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  ret = CAM_SetRequestedStreamConfig(&new_cam_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  CAM_Init();
+
+  ret = APP_Stream_UpdateConfig(&new_stream_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  p_stream_cfg = APP_Stream_GetConfig();
+  if (p_stream_cfg == NULL)
+  {
+    goto error;
+  }
+
+  ret = app_apply_stream_runtime_config(p_stream_cfg);
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  capture_buffer_disp_idx = 1;
+  capture_buffer_capt_idx = 0;
+  force_intra = 1;
+  buffer_flying = 0;
+  CAM_DisplayPipe_Start(capture_buffer[0], CMW_MODE_CONTINUOUS);
+
+  ret = APP_Stream_Start();
+  if (ret != 0)
+  {
+    goto error;
+  }
+
+  g_app_stream_preset = preset_id;
+  app_stream_reconfig_in_progress = 0;
+
+  printf("Preset switch completed\n");
+  app_display_info_header(p_stream_cfg);
+
+  return 0;
+
+error:
+  app_stream_reconfig_in_progress = 0;
+  printf("Preset switch failed\n");
+  return -1;
+}
+
+#endif
+
+
+static void app_process_user_button(void)
+{
+  static int button_press_latched = 0;
+  int cur_button_state;
+  int next_preset;
+
+  cur_button_state = BSP_PB_GetState(BUTTON_USER1);
+
+  if (cur_button_state == GPIO_PIN_SET)
+  {
+    if (!button_press_latched)
+    {
+      button_press_latched = 1;
+
+      next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
+                    APP_STREAM_PRESET_VGA : APP_STREAM_PRESET_HD;
+
+      printf("\nPreset switch call\n");
+
+      (void)app_switch_stream_preset(next_preset);
+    }
+  }
+  else
+  {
+    button_press_latched = 0;
+  }
 }
 
 static void stream_thread_fct(void *arg)
@@ -171,6 +427,14 @@ static void stream_thread_fct(void *arg)
   {
     ret = xSemaphoreTake(stream_sem, portMAX_DELAY);
     assert(ret == pdTRUE);
+
+    app_process_user_button();
+
+    if (app_stream_reconfig_in_progress || !APP_Stream_IsStarted())
+    {
+      uvc_is_active_prev = 0;
+      continue;
+    }
 
     if (!uvc_is_active)
     {
@@ -195,7 +459,10 @@ static void isp_thread_fct(void *arg)
     ret = xSemaphoreTake(isp_sem, portMAX_DELAY);
     assert(ret == pdTRUE);
 
-    CAM_IspUpdate();
+    if (!app_stream_reconfig_in_progress)
+    {
+      CAM_IspUpdate();
+    }
   }
 }
 
@@ -205,6 +472,7 @@ static void app_uvc_streaming_active(struct uvcl_callbacks *cbs, UVCL_StreamConf
   (void)stream;
   force_intra = 1;
   uvc_is_active = 1;
+  printf("\r\n Active\n");
   BSP_LED_On(LED_RED);
 }
 
@@ -212,6 +480,7 @@ static void app_uvc_streaming_inactive(struct uvcl_callbacks *cbs)
 {
   (void)cbs;
   uvc_is_active = 0;
+  printf("\r\n Inactive \n");
   BSP_LED_Off(LED_RED);
 }
 
@@ -250,38 +519,121 @@ static const char *app_stream_format_to_string(APP_StreamFormat_t format)
 
 static void app_display_info_header(const APP_StreamConfig_t *p_stream_cfg)
 {
-  printf("========================================\n");
-  printf("stm32n6 universal uvc camera (%s)\n", APP_VERSION_STRING);
-  printf("Build date & time: %s %s\n", __DATE__, __TIME__);
+  printf("\r\n========================================\r\n");
+  printf("stm32n6 universal uvc camera (%s)\r\n", APP_VERSION_STRING);
+  printf("Build date & time: %s %s\r\n", __DATE__, __TIME__);
 #if defined(__GNUC__)
-  printf("Compiler: GCC %d.%d.%d\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+  printf("Compiler: GCC %d.%d.%d\r\n", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
 #elif defined(__ICCARM__)
   printf("Compiler: IAR EWARM %d.%d.%d\n", __VER__ / 1000000, (__VER__ / 1000) % 1000 ,__VER__ % 1000);
 #else
   printf("Compiler: Unknown\n");
 #endif
-  printf("HAL: %lu.%lu.%lu\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
+  printf("HAL: %lu.%lu.%lu\r\n", __STM32N6xx_HAL_VERSION_MAIN, __STM32N6xx_HAL_VERSION_SUB1, __STM32N6xx_HAL_VERSION_SUB2);
 
   if (p_stream_cfg != NULL)
   {
-    printf("Streaming mode: %s over UVC\n", app_stream_format_to_string(p_stream_cfg->format));
-    printf("Stream config : %ux%u @ %lu fps\n",
+    printf("Streaming mode: %s over UVC\r\n", app_stream_format_to_string(p_stream_cfg->format));
+    printf("Stream config : %ux%u @ %lu fps\r\n",
            p_stream_cfg->width,
            p_stream_cfg->height,
            p_stream_cfg->fps);
   }
 
-  printf("========================================\n");
+  printf("========================================\r\n");
+}
+
+static void app_fill_stream_preset(APP_StreamConfig_t *p_cfg, int preset_id)
+{
+  assert(p_cfg != NULL);
+
+  switch (preset_id)
+  {
+    case 0:
+      p_cfg->width = 1280;
+      p_cfg->height = 720;
+      p_cfg->fps = CAMERA_FPS;
+      p_cfg->format = APP_STREAM_FMT_H264;
+      break;
+
+    case 1:
+      p_cfg->width = 640;
+      p_cfg->height = 480;
+      p_cfg->fps = CAMERA_FPS;
+      p_cfg->format = APP_STREAM_FMT_H264;
+      break;
+
+    default:
+      assert(0);
+  }
+}
+
+
+static int app_init_uvc(const APP_StreamConfig_t *p_stream_cfg)
+{
+  UVCL_Conf_t uvcl_conf = { 0 };
+  int ret;
+
+  if (p_stream_cfg == NULL)
+  {
+    return -1;
+  }
+
+  uvcl_conf.streams[0].width = p_stream_cfg->width;
+  uvcl_conf.streams[0].height = p_stream_cfg->height;
+  uvcl_conf.streams[0].fps = p_stream_cfg->fps;
+
+  ret = APP_Stream_FormatToUvclPayload(p_stream_cfg->format, &uvcl_conf.streams[0].payload_type);
+  if (ret != 0)
+  {
+    return -1;
+  }
+
+  uvcl_conf.streams_nb = 1;
+  uvcl_conf.is_immediate_mode = 1;
+
+  uvcl_cbs.streaming_active = app_uvc_streaming_active;
+  uvcl_cbs.streaming_inactive = app_uvc_streaming_inactive;
+  uvcl_cbs.frame_release = app_uvc_frame_release;
+
+  ret = UVCL_Init(USB1_OTG_HS, &uvcl_conf, &uvcl_cbs);
+  if (ret != 0)
+  {
+    return -1;
+  }
+
+  return 0;
+}
+
+static int app_apply_stream_runtime_config(const APP_StreamConfig_t *p_stream_cfg)
+{
+  ENC_Conf_t enc_conf = { 0 };
+
+  if (p_stream_cfg == NULL)
+  {
+    return -1;
+  }
+
+  if (p_stream_cfg->format != APP_STREAM_FMT_H264)
+  {
+    return -1;
+  }
+
+  enc_conf.width = p_stream_cfg->width;
+  enc_conf.height = p_stream_cfg->height;
+  enc_conf.fps = p_stream_cfg->fps;
+  ENC_Init(&enc_conf);
+
+  return 0;
 }
 
 void app_run()
 {
   UBaseType_t isp_priority = FREERTOS_PRIORITY(2);
   UBaseType_t stream_priority = FREERTOS_PRIORITY(1);
-  UVCL_Conf_t uvcl_conf = { 0 };
-  ENC_Conf_t enc_conf = { 0 };
   APP_StreamConfig_t stream_cfg;
   const APP_StreamConfig_t *p_stream_cfg;
+  CAM_StreamConfig_t cam_stream_cfg;
   TaskHandle_t hdl;
   int ret;
 
@@ -301,13 +653,19 @@ void app_run()
   __HAL_RCC_SYSCFG_CLK_ENABLE();
    LL_VENC_Init();
 
-  /*** Camera Init ************************************************************/  
-  CAM_Init();
+  /*** Camera Init ************************************************************/
 
-  stream_cfg.width = VENC_WIDTH;
-  stream_cfg.height = VENC_HEIGHT;
-  stream_cfg.fps = CAMERA_FPS;
-  stream_cfg.format = APP_STREAM_FMT_H264;
+  g_app_stream_preset = APP_STREAM_PRESET;
+  app_fill_stream_preset(&stream_cfg, g_app_stream_preset);
+
+  cam_stream_cfg.width = stream_cfg.width;
+  cam_stream_cfg.height = stream_cfg.height;
+  cam_stream_cfg.fps = stream_cfg.fps;
+
+  ret = CAM_SetRequestedStreamConfig(&cam_stream_cfg);
+  assert(ret == 0);
+
+  CAM_Init();
 
   ret = APP_Stream_Init(&stream_cfg);
   assert(ret == 0);
@@ -320,24 +678,11 @@ void app_run()
 
   app_display_info_header(p_stream_cfg);
 
-  /* Encoder init */
-  enc_conf.width = p_stream_cfg->width;
-  enc_conf.height = p_stream_cfg->height;
-  enc_conf.fps = p_stream_cfg->fps;;
-  ENC_Init(&enc_conf);
-
-  /* Uvc init */
-  uvcl_conf.streams[0].width = p_stream_cfg->width;
-  uvcl_conf.streams[0].height = p_stream_cfg->height;
-  uvcl_conf.streams[0].fps = p_stream_cfg->fps;
-  ret = APP_Stream_FormatToUvclPayload(p_stream_cfg->format, &uvcl_conf.streams[0].payload_type);
+  ret = app_init_uvc(p_stream_cfg);
   assert(ret == 0);
-  uvcl_conf.streams_nb = 1;
-  uvcl_conf.is_immediate_mode = 1;
-  uvcl_cbs.streaming_active = app_uvc_streaming_active;
-  uvcl_cbs.streaming_inactive = app_uvc_streaming_inactive;
-  uvcl_cbs.frame_release = app_uvc_frame_release;
-  ret = UVCL_Init(USB1_OTG_HS, &uvcl_conf, &uvcl_cbs);
+
+  ret = app_apply_stream_runtime_config(p_stream_cfg);
+  assert(ret == 0);
 
   /* sems + mutex init */
   isp_sem = xSemaphoreCreateCountingStatic(1, 0, &isp_sem_buffer);

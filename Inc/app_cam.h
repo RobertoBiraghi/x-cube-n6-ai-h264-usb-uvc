@@ -21,12 +21,27 @@
 #include <stdint.h>
 
 #define CAMERA_FPS 30
+#define CAM_DEFAULT_STREAM_WIDTH   1280U
+#define CAM_DEFAULT_STREAM_HEIGHT  720U
+
+typedef struct
+{
+  uint16_t width;
+  uint16_t height;
+  uint32_t fps;
+} CAM_StreamConfig_t;
 
 void CAM_Init(void);
+int CAM_DeInit(void);
 void CAM_DisplayPipe_Start(uint8_t *display_pipe_dst, uint32_t cam_mode);
+#if 0
+void CAM_DisplayPipe_Stop(void);
+#endif
 void CAM_NNPipe_Start(uint8_t *nn_pipe_dst, uint32_t cam_mode);
 void CAM_IspUpdate(void);
 int CAM_GetVencWidth(void);
 int CAM_GetVencHeight(void);
+
+int CAM_SetRequestedStreamConfig(const CAM_StreamConfig_t *p_cfg);
 
 #endif

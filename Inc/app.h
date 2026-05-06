@@ -21,8 +21,8 @@
 
 #include "stai_network.h"
 
-#define VENC_WIDTH CAM_GetVencWidth()
-#define VENC_HEIGHT CAM_GetVencHeight()
+//#define VENC_WIDTH CAM_GetVencWidth()
+//#define VENC_HEIGHT CAM_GetVencHeight()
 #define CAPTURE_FORMAT DCMIPP_PIXEL_PACKER_FORMAT_ARGB8888
 #define CAPTURE_BPP 4
 
