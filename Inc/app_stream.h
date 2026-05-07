@@ -45,7 +45,6 @@ int APP_Stream_Init(const APP_StreamConfig_t *p_cfg);
 int APP_Stream_UpdateConfig(const APP_StreamConfig_t *p_cfg);
 const APP_StreamConfig_t *APP_Stream_GetConfig(void);
 int APP_Stream_IsSameConfig(const APP_StreamConfig_t *p_cfg_a, const APP_StreamConfig_t *p_cfg_b);
-int APP_Stream_FormatToUvclPayload(APP_StreamFormat_t format, int *p_payload);
 
 int APP_Stream_Start(void);
 int APP_Stream_Stop(void);

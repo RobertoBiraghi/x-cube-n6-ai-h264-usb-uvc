@@ -16,6 +16,7 @@
  ******************************************************************************/
 
 #include "app_stream.h"
+#include "app_uvc_format.h"
 #include "uvcl.h"
 
 #include <assert.h>
@@ -52,58 +53,11 @@ const APP_StreamConfig_t *APP_Stream_GetConfig(void)
   return &g_app_stream_cfg;
 }
 
-int APP_Stream_FormatToUvclPayload(APP_StreamFormat_t format, int *p_payload)
-{
-  if (p_payload == NULL)
-    return -1;
-
-  *p_payload = -1;
-
-  /*
-   * Map application stream formats to UVCL payload identifiers.
-   * Note: this mapping does not imply full end-to-end runtime support yet.
-   * Camera pipe configuration, descriptors, routing and reconfiguration logic
-   * are introduced incrementally in follow-up steps.
-   */
-
-  switch (format)
-  {
-    case APP_STREAM_FMT_H264:
-      *p_payload = UVCL_PAYLOAD_FB_H264;
-      return 0;
-
-    case APP_STREAM_FMT_JPEG:
-      *p_payload = UVCL_PAYLOAD_FB_JPEG;
-      return 0;
-
-    case APP_STREAM_FMT_RGB565:
-      *p_payload = UVCL_PAYLOAD_FB_RGB565;
-      return 0;
-
-    case APP_STREAM_FMT_YUV422:
-      *p_payload = UVCL_PAYLOAD_UNCOMPRESSED_YUY2;
-      return 0;
-
-    case APP_STREAM_FMT_GRAY8:
-      *p_payload = UVCL_PAYLOAD_FB_GREY;
-      return 0;
-
- /* UVCL payload not defined yet in current middleware for:
-  * - APP_STREAM_FMT_RGB888
-  * - APP_STREAM_FMT_YUV420
-  */
-    case APP_STREAM_FMT_RGB888: //UVCL_PAYLOAD_FB_BGR3
-    case APP_STREAM_FMT_YUV420:
-    default:
-      return -1;
-  }
-}
-
 static int APP_Stream_IsFormatSupported(APP_StreamFormat_t format)
 {
   int payload;
 
-  return (APP_Stream_FormatToUvclPayload(format, &payload) == 0) ? 1 : 0;
+  return (APP_UVC_FormatToPayload(format, &payload) == 0) ? 1 : 0;
 }
 
 int APP_Stream_Start(void)

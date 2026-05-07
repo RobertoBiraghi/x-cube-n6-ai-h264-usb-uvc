@@ -1,12 +1,12 @@
- /**
+/**
  ******************************************************************************
- * @file    app.h
- * @author  GPM Application Team
+ * @file    app_uvc_format.h
+ * @author  SRA Application Team
  *
  ******************************************************************************
  * @attention
  *
- * Copyright (c) 2024 STMicroelectronics.
+ * Copyright (c) 2026 STMicroelectronics.
  * All rights reserved.
  *
  * This software is licensed under terms that can be found in the LICENSE file
@@ -16,20 +16,16 @@
  ******************************************************************************
  */
 
-#ifndef APP_H
-#define APP_H
 
-#include "stai_network.h"
+#ifndef APP_UVC_FORMAT_H
+#define APP_UVC_FORMAT_H
 
-#define CAPTURE_FORMAT DCMIPP_PIXEL_PACKER_FORMAT_ARGB8888
-#define CAPTURE_BPP 4
+#include <stddef.h>
 
-/* Model Related Info */
-#define NN_WIDTH STAI_NETWORK_IN_1_WIDTH
-#define NN_HEIGHT STAI_NETWORK_IN_1_HEIGHT
-#define NN_FORMAT DCMIPP_PIXEL_PACKER_FORMAT_RGB888_YUV444_1
-#define NN_BPP 3
+#include "app_stream.h"
 
-void app_run(void);
+int APP_UVC_FormatToPayload(APP_StreamFormat_t format, int *p_payload);
+size_t APP_UVC_GetFrameSize(const APP_StreamConfig_t *p_cfg);
+int APP_UVC_IsCompressedFormat(APP_StreamFormat_t format);
 
-#endif
+#endif /* APP_UVC_FORMAT_H */

@@ -34,6 +34,7 @@
 #include "utils.h"
 #include "uvcl.h"
 #include "app_stream.h"
+#include "app_uvc_format.h"
 
 #ifndef APP_VERSION_STRING
 #define APP_VERSION_STRING "dev"
@@ -97,9 +98,6 @@ static StackType_t isp_thread_stack[2 *configMINIMAL_STACK_SIZE];
 static SemaphoreHandle_t isp_sem;
 static StaticSemaphore_t isp_sem_buffer;
 
-__attribute__((section(".noinit"))) uint32_t saved_preset;
-
-
 static void app_display_info_header(const APP_StreamConfig_t *p_stream_cfg);
 static void app_fill_stream_preset(APP_StreamConfig_t *p_cfg, int preset_id);
 static int app_apply_stream_runtime_config(const APP_StreamConfig_t *p_stream_cfg);
@@ -153,13 +151,13 @@ static int send_h264_frame(uint8_t *p_buffer, int is_intra_force)
   len = ENC_EncodeFrame(p_buffer, venc_out_buffer, VENC_OUT_BUFFER_SIZE, is_intra_force);
   if (len <= 0)
   {
-	printf("ENC_EncodeFrame failed, len=%d\n", len);
+	//printf("ENC_EncodeFrame failed, len=%d\n", len);
     return -1;
   }
 
   if (buffer_flying)
   {
-	printf("Dropping frame: buffer still flying\n");
+	//printf("Dropping frame: buffer still flying\n");
 	force_intra = 1;
     return -1;
   }
@@ -170,120 +168,13 @@ static int send_h264_frame(uint8_t *p_buffer, int is_intra_force)
   ret = UVCL_ShowFrame(uvc_in_buffers, len);
   if (ret != 0)
   {
-	printf("UVCL_ShowFrame failed, ret=%d, len=%d\n", ret, len);
+	//printf("UVCL_ShowFrame failed, ret=%d, len=%d\n", ret, len);
     buffer_flying = 0;
     return -1;
   }
 
   return 0;
 }
-
-#if 0
-static int app_switch_stream_preset(int preset_id)
-{
-  APP_StreamConfig_t new_stream_cfg;
-  CAM_StreamConfig_t new_cam_cfg;
-  const APP_StreamConfig_t *p_stream_cfg;
-  int ret;
-
-  if (app_stream_reconfig_in_progress)
-  {
-	 printf("Preset switch ignored while reconfiguration is already in progress\n");
-	 return -1;
-  }
-
-  if (uvc_is_active)
-  {
-    printf("Preset switch ignored while UVC stream is active\n");
-    return -1;
-  }
-
-  if (preset_id == g_app_stream_preset)
-  {
-    return 0;
-  }
-
-  app_stream_reconfig_in_progress = 1;
-
-  ret = APP_Stream_Stop();
-  if (ret != 0)
-  {
-    goto error;
-  }
-
-  //CAM_DisplayPipe_Stop();
-
-  ENC_DeInit();
-  CAM_DeInit();
-#if 0
-  /* Not working*/
-  UVCL_Deinit();
-#endif
-
-  app_fill_stream_preset(&new_stream_cfg, preset_id);
-
-  new_cam_cfg.width = new_stream_cfg.width;
-  new_cam_cfg.height = new_stream_cfg.height;
-  new_cam_cfg.fps = new_stream_cfg.fps;
-
-
-  ret = CAM_SetRequestedStreamConfig(&new_cam_cfg);
-  if (ret != 0)
-  {
-    goto error;
-  }
-
-  CAM_Init();
-
-  ret = APP_Stream_UpdateConfig(&new_stream_cfg);
-  if (ret != 0)
-  {
-    goto error;
-  }
-
-  p_stream_cfg = APP_Stream_GetConfig();
-  if (p_stream_cfg == NULL)
-  {
-    goto error;
-  }
-
-#if 0
-  /* if use UVCL_Deninit but to now not working */
-  ret = app_init_uvc(p_stream_cfg);
-  if (ret != 0)
-  {
-    goto error;
-  }
-#endif
-
-  ret = app_apply_stream_runtime_config(p_stream_cfg);
-  if (ret != 0)
-  {
-    goto error;
-  }
-
-  CAM_DisplayPipe_Start(capture_buffer[0], CMW_MODE_CONTINUOUS);
-
-  ret = APP_Stream_Start();
-  if (ret != 0)
-  {
-    goto error;
-  }
-
-  g_app_stream_preset = preset_id;
-  app_stream_reconfig_in_progress = 0;
-
-  printf("\nSwitched stream preset to %d\n", preset_id);
-  app_display_info_header(p_stream_cfg);
-
-  return 0;
-
-error:
-  app_stream_reconfig_in_progress = 0;
-  printf("Preset switch failed\n");
-  return -1;
-}
-#else
 
 static int app_switch_stream_preset(int preset_id)
 {
@@ -405,9 +296,6 @@ error:
   printf("Preset switch failed\n");
   return -1;
 }
-
-#endif
-
 
 static void app_process_user_button(void)
 {
@@ -634,7 +522,7 @@ static int app_init_uvc(const APP_StreamConfig_t *p_stream_cfg)
   uvcl_conf.streams[0].height = p_stream_cfg->height;
   uvcl_conf.streams[0].fps = p_stream_cfg->fps;
 
-  ret = APP_Stream_FormatToUvclPayload(p_stream_cfg->format, &uvcl_conf.streams[0].payload_type);
+  ret = APP_UVC_FormatToPayload(p_stream_cfg->format, &uvcl_conf.streams[0].payload_type);
   if (ret != 0)
   {
     return -1;
@@ -665,8 +553,14 @@ static int app_apply_stream_runtime_config(const APP_StreamConfig_t *p_stream_cf
     return -1;
   }
 
+  if (!APP_UVC_IsCompressedFormat(p_stream_cfg->format))
+  {
+    return -1;
+  }
+
   if (p_stream_cfg->format != APP_STREAM_FMT_H264)
   {
+    /* Compressed format detected, but not supported yet */
     return -1;
   }
 
@@ -695,10 +589,6 @@ void app_run()
   assert(ret == BSP_ERROR_NONE);
 
   //cpuload_init(&cpu_load);
-
-  /* create buffer queues */
-
-  /* setup fonts */
 
   /* Enable venc */
   __HAL_RCC_SYSCFG_CLK_ENABLE();
