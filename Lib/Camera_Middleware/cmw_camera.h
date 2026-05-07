@@ -200,6 +200,7 @@ int32_t CMW_CAMERA_SetWBRefMode(uint8_t Automatic, uint32_t RefColorTemp);
 int32_t CMW_CAMERA_ListWBRefModes(uint32_t RefColorTemp[]);
 
 int32_t CMW_CAMERA_Start(uint32_t pipe, uint8_t *pbuff, uint32_t Mode);
+int32_t CMW_CAMERA_Stop(uint32_t pipe);
 int32_t CMW_CAMERA_DoubleBufferStart(uint32_t pipe, uint8_t *pbuff1, uint8_t *pbuff2, uint32_t Mode);
 int32_t CMW_CAMERA_Suspend(uint32_t pipe);
 int32_t CMW_CAMERA_Resume(uint32_t pipe);

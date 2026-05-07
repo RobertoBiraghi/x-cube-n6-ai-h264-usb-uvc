@@ -20,15 +20,19 @@
 
 #include <stdint.h>
 
+#include "app_stream.h"
+
 #define CAMERA_FPS 30
 #define CAM_DEFAULT_STREAM_WIDTH   1280U
 #define CAM_DEFAULT_STREAM_HEIGHT  720U
+#define CAM_DEFAULT_STREAM_FORMAT  (APP_STREAM_FMT_H264)
 
 typedef struct
 {
   uint16_t width;
   uint16_t height;
   uint32_t fps;
+  APP_StreamFormat_t format;
 } CAM_StreamConfig_t;
 
 void CAM_Init(void);

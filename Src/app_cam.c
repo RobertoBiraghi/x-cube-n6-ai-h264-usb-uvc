@@ -40,8 +40,24 @@ static CAM_StreamConfig_t requested_stream_cfg =
 {
   .width = CAM_DEFAULT_STREAM_WIDTH,
   .height = CAM_DEFAULT_STREAM_HEIGHT,
-  .fps = CAMERA_FPS
+  .fps = CAMERA_FPS,
+  .format = CAM_DEFAULT_STREAM_FORMAT
 };
+
+
+static int CAM_GetPipeOutputFormat(APP_StreamFormat_t format, int *p_output_format, int *p_output_bpp);
+
+static int CAM_IsFormatSupported(APP_StreamFormat_t format)
+{
+  switch (format)
+  {
+    case APP_STREAM_FMT_H264:
+    case APP_STREAM_FMT_YUV422:
+      return 1;
+    default:
+      return 0;
+  }
+}
 
 int CAM_SetRequestedStreamConfig(const CAM_StreamConfig_t *p_cfg)
 {
@@ -51,6 +67,17 @@ int CAM_SetRequestedStreamConfig(const CAM_StreamConfig_t *p_cfg)
   }
 
   if ((p_cfg->width == 0U) || (p_cfg->height == 0U) || (p_cfg->fps == 0U))
+  {
+    return -1;
+  }
+
+  if (!CAM_IsFormatSupported(p_cfg->format))
+  {
+    return -1;
+  }
+
+  if (!((p_cfg->width == 1280 && p_cfg->height == 720) ||
+        (p_cfg->width == 640  && p_cfg->height == 480)))
   {
     return -1;
   }
@@ -131,8 +158,16 @@ static void DCMIPP_PipeInitDisplay(int sensor_width, int sensor_height)
 
   dcmipp_conf.output_width = requested_stream_cfg.width;
   dcmipp_conf.output_height = requested_stream_cfg.height;
+#if 0
   dcmipp_conf.output_format = CAPTURE_FORMAT;
   dcmipp_conf.output_bpp = CAPTURE_BPP;
+#else
+  ret = CAM_GetPipeOutputFormat(requested_stream_cfg.format,
+		  	  	  	  	  	  	&dcmipp_conf.output_format,
+                                &dcmipp_conf.output_bpp);
+  assert(ret == 0);
+
+#endif
   dcmipp_conf.mode = CMW_Aspect_ratio_manual_roi;
   dcmipp_conf.enable_swap = 0;
   dcmipp_conf.enable_gamma_conversion = 0;
@@ -265,6 +300,30 @@ int CAM_GetVencHeight()
   assert(venc_height);
 
   return venc_height;
+}
+
+static int CAM_GetPipeOutputFormat(APP_StreamFormat_t format, int *p_output_format, int *p_output_bpp)
+{
+  if ((p_output_format == NULL) || (p_output_bpp == NULL))
+  {
+    return -1;
+  }
+
+  switch (format)
+  {
+    case APP_STREAM_FMT_H264:
+      *p_output_format = DCMIPP_PIXEL_PACKER_FORMAT_ARGB8888;
+      *p_output_bpp = 4;
+      return 0;
+
+    case APP_STREAM_FMT_YUV422:
+      *p_output_format = DCMIPP_PIXEL_PACKER_FORMAT_YUV422_1;
+      *p_output_bpp = 2;
+      return 0;
+
+    default:
+      return -1;
+  }
 }
 
 void CMW_CAMERA_PIPE_ErrorCallback(uint32_t pipe)

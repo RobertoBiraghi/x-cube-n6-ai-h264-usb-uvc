@@ -473,6 +473,49 @@ int32_t CMW_CAMERA_Start(uint32_t pipe, uint8_t *pbuff, uint32_t mode)
   return ret;
 }
 
+/* RB */
+
+int32_t CMW_CAMERA_Stop(uint32_t pipe)
+{
+  int32_t ret = CMW_ERROR_NONE;
+
+  // 1. Controllo dei parametri (stessa logica della Start)
+  if (pipe >= DCMIPP_NUM_OF_PIPES)
+  {
+    return CMW_ERROR_WRONG_PARAM;
+  }
+
+  // 2. Ferma il flusso dati hardware (DCMIPP)[cite: 12, 14]
+  // Questa funzione interrompe il DMA che scrive i pixel nella RAM
+  ret = HAL_DCMIPP_CSI_PIPE_Stop(&hcamera_dcmipp, pipe, DCMIPP_VIRTUAL_CHANNEL0);
+  if (ret != HAL_OK)
+  {
+    return CMW_ERROR_PERIPH_FAILURE;
+  }
+
+#if 0
+  //Non è implementata la stop
+  // 3. Ferma il sensore fisico (IMX335) tramite il driver BSP
+  // Lo facciamo solo se la camera risulta effettivamente avviata
+  if (is_camera_started)
+  {
+    ret = Camera_Drv.Stop(&camera_bsp);
+    if (ret != CMW_ERROR_NONE)
+    {
+      return CMW_ERROR_COMPONENT_FAILURE;
+    }
+    // Reset del flag di stato
+    is_camera_started = 0;
+  }
+#endif
+
+  is_camera_started = 0;
+
+
+  /* Ritorna lo stato CMW */
+  return ret;
+}
+
 #if defined (STM32N657xx)
 /**
   * @brief  Starts the camera capture in the selected mode.
@@ -575,9 +618,16 @@ int32_t CMW_CAMERA_DeInit(void)
   CMW_CAMERA_PwrDown();
 
   /* Update DCMIPPInit counter */
+#if 0
+  /* Original code*/
   is_camera_init--;
   is_camera_started--;
   is_pipe1_2_shared--;
+#else
+  is_camera_init = 0;
+  is_camera_started = 0;
+  is_pipe1_2_shared = 0;
+#endif
 
   /* Return CMW status */
   ret = CMW_ERROR_NONE;

@@ -61,6 +61,7 @@
 /* Globals */
 #define APP_STREAM_PRESET_HD   0
 #define APP_STREAM_PRESET_VGA  1
+#define APP_STREAM_PRESET_VGA_YUV422  2
 
 #define APP_STREAM_PRESET APP_STREAM_PRESET_HD
 
@@ -176,10 +177,42 @@ static int send_h264_frame(uint8_t *p_buffer, int is_intra_force)
   return 0;
 }
 
+static int send_raw_frame(uint8_t *p_buffer, const APP_StreamConfig_t *p_stream_cfg)
+{
+  size_t frame_size;
+  int ret;
+
+  if ((p_buffer == NULL) || (p_stream_cfg == NULL))
+  {
+    return -1;
+  }
+
+  if (buffer_flying)
+  {
+    return -1;
+  }
+
+  frame_size = APP_UVC_GetFrameSize(p_stream_cfg);
+  if (frame_size == 0U)
+  {
+    return -1;
+  }
+
+  buffer_flying = 1;
+  ret = UVCL_ShowFrame(p_buffer, (int)frame_size);
+  if (ret != 0)
+  {
+    buffer_flying = 0;
+    return -1;
+  }
+
+  return 0;
+}
+
 static int app_switch_stream_preset(int preset_id)
 {
-  APP_StreamConfig_t new_stream_cfg;
-  CAM_StreamConfig_t new_cam_cfg;
+  APP_StreamConfig_t new_stream_cfg = {0};
+  CAM_StreamConfig_t new_cam_cfg = {0};
   const APP_StreamConfig_t *p_stream_cfg;
   int ret;
 
@@ -207,6 +240,7 @@ static int app_switch_stream_preset(int preset_id)
   new_cam_cfg.width = new_stream_cfg.width;
   new_cam_cfg.height = new_stream_cfg.height;
   new_cam_cfg.fps = new_stream_cfg.fps;
+  new_cam_cfg.format = new_stream_cfg.format;
 
   printf("Switching preset %d -> %d\n", g_app_stream_preset, preset_id);
 
@@ -264,7 +298,7 @@ static int app_switch_stream_preset(int preset_id)
 
   printf("Reconfig: ENC_Init\n");
   ret = app_apply_stream_runtime_config(p_stream_cfg);
-  printf("Reconfig: UVCL_Init ret=%d\n", ret);
+  printf("Reconfig: ENC_Init ret=%d\n", ret);
   if (ret != 0)
   {
     goto error;
@@ -311,8 +345,13 @@ static void app_process_user_button(void)
     {
       button_press_latched = 1;
 
+#if 0
       next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
                     APP_STREAM_PRESET_VGA : APP_STREAM_PRESET_HD;
+#else
+      next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
+    		  APP_STREAM_PRESET_VGA_YUV422 : APP_STREAM_PRESET_HD;
+#endif
 
       printf("\nPreset switch call\n");
 
@@ -329,6 +368,7 @@ static void stream_thread_fct(void *arg)
 {
   int ret;
   int uvc_is_active_prev = 0;
+  const APP_StreamConfig_t *p_stream_cfg;
 
   (void)arg;
 
@@ -351,12 +391,40 @@ static void stream_thread_fct(void *arg)
       continue;
     }
 
+#if 1
+    p_stream_cfg = APP_Stream_GetConfig();
+    if (p_stream_cfg == NULL)
+    {
+      uvc_is_active_prev = 0;
+      continue;
+    }
+
+    if (APP_UVC_IsCompressedFormat(p_stream_cfg->format))
+    {
+      if (send_h264_frame(capture_buffer[capture_buffer_disp_idx],
+                          (!uvc_is_active_prev || force_intra)) == 0)
+      {
+        force_intra = 0;
+        uvc_is_active_prev = 1;
+      }
+    }
+    else
+    {
+      if (send_raw_frame(capture_buffer[capture_buffer_disp_idx], p_stream_cfg) == 0)
+      {
+        uvc_is_active_prev = 1;
+      }
+    }
+
+
+#else
     if (send_h264_frame(capture_buffer[capture_buffer_disp_idx],
                         (!uvc_is_active_prev || force_intra)) == 0)
     {
       force_intra = 0;
       uvc_is_active_prev = 1;
     }
+#endif
   }
 }
 
@@ -502,6 +570,13 @@ static void app_fill_stream_preset(APP_StreamConfig_t *p_cfg, int preset_id)
       p_cfg->format = APP_STREAM_FMT_H264;
       break;
 
+    case 2:
+        p_cfg->width = 640;
+        p_cfg->height = 480;
+        p_cfg->fps = CAMERA_FPS;
+        p_cfg->format = APP_STREAM_FMT_YUV422;
+    break;
+
     default:
       assert(0);
   }
@@ -555,7 +630,7 @@ static int app_apply_stream_runtime_config(const APP_StreamConfig_t *p_stream_cf
 
   if (!APP_UVC_IsCompressedFormat(p_stream_cfg->format))
   {
-    return -1;
+	return 0;
   }
 
   if (p_stream_cfg->format != APP_STREAM_FMT_H264)
@@ -597,11 +672,13 @@ void app_run()
   /*** Camera Init ************************************************************/
 
   g_app_stream_preset = APP_STREAM_PRESET;
+  //g_app_stream_preset = APP_STREAM_PRESET_VGA_YUV422;
   app_fill_stream_preset(&stream_cfg, g_app_stream_preset);
 
   cam_stream_cfg.width = stream_cfg.width;
   cam_stream_cfg.height = stream_cfg.height;
   cam_stream_cfg.fps = stream_cfg.fps;
+  cam_stream_cfg.format = stream_cfg.format;
 
   ret = CAM_SetRequestedStreamConfig(&cam_stream_cfg);
   assert(ret == 0);
