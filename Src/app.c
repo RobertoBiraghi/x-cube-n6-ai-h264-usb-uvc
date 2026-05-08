@@ -62,6 +62,8 @@
 #define APP_STREAM_PRESET_HD   0
 #define APP_STREAM_PRESET_VGA  1
 #define APP_STREAM_PRESET_VGA_YUV422  2
+#define APP_STREAM_PRESET_VGA_GRAY8  3
+#define APP_STREAM_PRESET_VGA_RGB565  4
 
 #define APP_STREAM_PRESET APP_STREAM_PRESET_HD
 
@@ -346,11 +348,29 @@ static void app_process_user_button(void)
       button_press_latched = 1;
 
 #if 0
+#if 0
       next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
                     APP_STREAM_PRESET_VGA : APP_STREAM_PRESET_HD;
 #else
       next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
     		  APP_STREAM_PRESET_VGA_YUV422 : APP_STREAM_PRESET_HD;
+#endif
+#else
+      switch (g_app_stream_preset)
+      {
+        case APP_STREAM_PRESET_HD:
+        	next_preset = APP_STREAM_PRESET_VGA_YUV422;
+			break;
+
+		case APP_STREAM_PRESET_VGA_YUV422:
+			next_preset = APP_STREAM_PRESET_VGA_GRAY8;
+			break;
+
+		case APP_STREAM_PRESET_VGA_GRAY8:
+		default:
+			next_preset = APP_STREAM_PRESET_HD;
+			break;
+		}
 #endif
 
       printf("\nPreset switch call\n");
@@ -576,6 +596,20 @@ static void app_fill_stream_preset(APP_StreamConfig_t *p_cfg, int preset_id)
         p_cfg->fps = CAMERA_FPS;
         p_cfg->format = APP_STREAM_FMT_YUV422;
     break;
+
+    case 3:
+      p_cfg->width = 640;
+      p_cfg->height = 480;
+      p_cfg->fps = CAMERA_FPS;
+      p_cfg->format = APP_STREAM_FMT_GRAY8;
+      break;
+
+    case 4:
+      p_cfg->width = 640;
+      p_cfg->height = 480;
+      p_cfg->fps = CAMERA_FPS;
+      p_cfg->format = APP_STREAM_FMT_RGB565;
+      break;
 
     default:
       assert(0);
