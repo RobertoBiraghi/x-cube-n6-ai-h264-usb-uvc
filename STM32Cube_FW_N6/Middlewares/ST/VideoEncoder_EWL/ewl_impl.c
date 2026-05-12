@@ -155,7 +155,9 @@ const void *EWLInit(EWLInitParam_t *param)
   /* Check for NULL pointer */
   assert_param(param != NULL);
   /* only H264 (0) and JPEG (1) are supported */
-  assert_param(param->clientType <= 1U);
+  //assert_param(param->clientType <= 1U);
+  assert_param((param->clientType == EWL_CLIENT_TYPE_H264_ENC) ||
+               (param->clientType == EWL_CLIENT_TYPE_JPEG_ENC));
 
   u8 *mem_pool = NULL;
   size_t mem_pool_size = EWL_DEFAULT_POOL_SIZE;

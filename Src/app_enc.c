@@ -26,6 +26,8 @@
 #include "stm32n6xx_hal.h"
 #include "utils.h"
 #include "ewl.h"
+#include "app_stream.h"
+#include "stdio.h"
 
 #define VENC_ALLOCATOR_SIZE (4 * 1024 * 1024)
 #define RATE_CTRL_QP 25
@@ -35,14 +37,33 @@ enum {
   VENC_RATE_CTRL_VBR,
 };
 
+typedef enum
+{
+  ENC_KIND_NONE = 0,
+  ENC_KIND_H264,
+  ENC_KIND_JPEG
+} ENC_Kind_t;
+
 static uint8_t venc_hw_allocator_buffer[VENC_ALLOCATOR_SIZE] ALIGN_32 IN_PSRAM;
 static uint8_t *venc_hw_allocator_pos = venc_hw_allocator_buffer;
+
+#if 0
 static struct VENC_Context {
   H264EncInst hdl;
   int is_sps_pps_done;
   uint64_t pic_cnt;
   int gop_len;
 } VENC_Instance;
+#else
+static struct VENC_Context {
+  ENC_Kind_t kind;
+  H264EncInst hdl;
+  JpegEncInst jpeg_hdl;
+  int is_sps_pps_done;
+  uint64_t pic_cnt;
+  int gop_len;
+} VENC_Instance;
+#endif
 
 static void VENC_SetupConstantQp(H264EncRateCtrl *rate, int qp)
 {
@@ -185,7 +206,7 @@ static int VENC_Encode(uint8_t *p_in, uint8_t *p_out, size_t out_len, size_t *p_
   return 0;
 }
 
-void ENC_Init(ENC_Conf_t *p_conf)
+void VENC_H264_Init(ENC_Conf_t *p_conf)
 {
   const int rate_ctrl_mode = VENC_RATE_CTRL_VBR;
   struct VENC_Context *p_ctx = &VENC_Instance;
@@ -199,6 +220,8 @@ void ENC_Init(ENC_Conf_t *p_conf)
   venc_hw_allocator_pos = venc_hw_allocator_buffer;
   memset(p_ctx, 0, sizeof(*p_ctx));
   memset(&config, 0, sizeof(config));
+  /*Set H264*/
+  p_ctx->kind = ENC_KIND_H264;
   p_ctx->gop_len = p_conf->fps - 1;
   /* init encoder */
   config.streamType = H264ENC_BYTE_STREAM;
@@ -244,7 +267,7 @@ void ENC_Init(ENC_Conf_t *p_conf)
   assert(ret == H264ENC_OK);
 }
 
-void ENC_DeInit()
+void VENC_H264_DeInit()
 {
   struct VENC_Context *p_ctx = &VENC_Instance;
   int ret = H264ENC_OK;
@@ -259,7 +282,7 @@ void ENC_DeInit()
   venc_hw_allocator_pos = venc_hw_allocator_buffer;
 }
 
-int ENC_EncodeFrame(uint8_t *p_in, uint8_t *p_out, size_t out_len, int is_intra_force)
+int VENC_H264_EncodeFrame(uint8_t *p_in, uint8_t *p_out, size_t out_len, int is_intra_force)
 {
   size_t out_compressed_frame_len;
   int ret;
@@ -267,6 +290,186 @@ int ENC_EncodeFrame(uint8_t *p_in, uint8_t *p_out, size_t out_len, int is_intra_
   ret = VENC_Encode(p_in, p_out, out_len, &out_compressed_frame_len, is_intra_force);
 
   return ret ? -1 : out_compressed_frame_len;
+}
+
+
+void VENC_JPEG_Init(ENC_Conf_t *p_conf){
+  struct VENC_Context *p_ctx = &VENC_Instance;
+  JpegEncCfg cfg;
+  JpegEncRet ret;
+#if 0
+  if (p_conf == NULL)
+  {
+	return -1;
+  }
+#endif
+
+  venc_hw_allocator_pos = venc_hw_allocator_buffer;
+  memset(p_ctx, 0, sizeof(*p_ctx));
+  memset(&cfg, 0, sizeof(cfg));
+
+  printf("JPEG Init: %dx%d\n", p_conf->width, p_conf->height);
+  printf("JPEG Init: calling JpegEncInit\n");
+
+  p_ctx->kind = ENC_KIND_JPEG;
+  //p_ctx->width = p_conf->width;
+  //p_ctx->height = p_conf->height;
+  //p_ctx->fps = p_conf->fps;
+  //p_ctx->format = p_conf->format;
+
+  cfg.qLevel = 5; /* qualità media: adattabile */
+  cfg.frameType = JPEGENC_YUV422_INTERLEAVED_YUYV;
+  cfg.codingType = JPEGENC_WHOLE_FRAME;
+  cfg.markerType = JPEGENC_SINGLE_MARKER;
+
+  cfg.unitsType = JPEGENC_NO_UNITS;
+  cfg.xDensity = 1;
+  cfg.yDensity = 1;
+
+  cfg.inputWidth = p_conf->width;
+  cfg.inputHeight = p_conf->height;
+  cfg.codingWidth = p_conf->width;
+  cfg.codingHeight = p_conf->height;
+  cfg.xOffset = 0;
+  cfg.yOffset = 0;
+  cfg.rotation = JPEGENC_ROTATE_0;
+  cfg.restartInterval = 0;
+  cfg.codingMode = JPEGENC_422_MODE;
+
+  cfg.inputLineBufEn = 0;
+  cfg.inputLineBufLoopBackEn = 0;
+  cfg.inputLineBufDepth = 0;
+  cfg.inputLineBufHwModeEn = 0;
+
+  ret = JpegEncInit(&cfg, &p_ctx->jpeg_hdl);
+  printf("JPEG Init: JpegEncInit ret=%d\n", ret);
+  if (ret != JPEGENC_OK)
+  {
+	return;
+	  //return -1;
+  }
+
+  ret = JpegEncSetPictureSize(p_ctx->jpeg_hdl, &cfg);
+  printf("JPEG Init: JpegEncSetPictureSize ret=%d\n", ret);
+  if (ret != JPEGENC_OK)
+  {
+	JpegEncRelease(p_ctx->jpeg_hdl);
+	p_ctx->jpeg_hdl = NULL;
+	return;
+	//return -1;
+  }
+
+  return;
+  //return 0;
+}
+
+static int VENC_JPEG_EncodeFrame(uint8_t *p_in, uint8_t *p_out, size_t out_len)
+{
+  struct VENC_Context *p_ctx = &VENC_Instance;
+  JpegEncIn enc_in;
+  JpegEncOut enc_out;
+  JpegEncRet ret;
+
+  if ((p_ctx->jpeg_hdl == NULL) || (p_in == NULL) || (p_out == NULL))
+  {
+    return -1;
+  }
+
+  memset(&enc_in, 0, sizeof(enc_in));
+  memset(&enc_out, 0, sizeof(enc_out));
+
+  enc_in.pOutBuf = p_out;
+  enc_in.busOutBuf = (ptr_t)p_out;
+  enc_in.outBufSize = (u32)out_len;
+
+  enc_in.busLum = (ptr_t)p_in;
+  enc_in.busCb = 0;
+  enc_in.busCr = 0;
+
+  enc_in.frameHeader = 1;
+  enc_in.lineBufWrCnt = 0;
+  printf("JPEG Encode: start\n");
+
+  ret = JpegEncEncode(p_ctx->jpeg_hdl, &enc_in, &enc_out, NULL, NULL);
+  printf("JPEG Encode: ret=%d size=%lu\n", ret, (unsigned long)enc_out.jfifSize);
+  if (ret != JPEGENC_FRAME_READY)
+  {
+    return -1;
+  }
+
+  return enc_out.jfifSize;
+}
+
+void VENC_JPEG_DeInit(void){
+  struct VENC_Context *p_ctx = &VENC_Instance;
+
+  if (p_ctx->jpeg_hdl != NULL)
+  {
+	(void)JpegEncRelease(p_ctx->jpeg_hdl);
+  }
+
+  memset(p_ctx, 0, sizeof(*p_ctx));
+  venc_hw_allocator_pos = venc_hw_allocator_buffer;
+}
+
+
+void ENC_Init(ENC_Conf_t *p_conf)
+{
+  /* trasform to have return int */
+#if 0
+  if (p_conf == NULL)
+  {
+    return -1;
+  }
+#endif
+
+  switch (p_conf->format)
+  {
+    case APP_STREAM_FMT_H264:
+      VENC_H264_Init(p_conf);
+      break;
+
+    case APP_STREAM_FMT_JPEG:
+      VENC_JPEG_Init(p_conf);
+      break;
+
+    default:
+  }
+}
+
+void ENC_DeInit()
+{
+
+  struct VENC_Context *p_ctx = &VENC_Instance;
+
+  switch (p_ctx->kind)
+  {
+    case ENC_KIND_H264:
+      VENC_H264_DeInit();
+      break;
+
+    case ENC_KIND_JPEG:
+      VENC_JPEG_DeInit();
+      break;
+
+    default:
+  }
+}
+
+int ENC_EncodeFrame(uint8_t *p_in, uint8_t *p_out, size_t out_len, int is_intra_force){
+	  struct VENC_Context *p_ctx = &VENC_Instance;
+
+	  switch (p_ctx->kind)
+	  {
+	    case ENC_KIND_H264:
+	      return VENC_H264_EncodeFrame(p_in, p_out, out_len, is_intra_force);
+
+	    case ENC_KIND_JPEG:
+	      return VENC_JPEG_EncodeFrame(p_in, p_out, out_len);
+
+	    default:
+	      return -1;
+	  }
 }
 
 void *EWLmalloc(u32 n)

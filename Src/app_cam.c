@@ -52,9 +52,11 @@ static int CAM_IsFormatSupported(APP_StreamFormat_t format)
   switch (format)
   {
     case APP_STREAM_FMT_H264:
+    case APP_STREAM_FMT_JPEG:
     case APP_STREAM_FMT_YUV422:
     case APP_STREAM_FMT_GRAY8:
     case APP_STREAM_FMT_RGB565:
+    case APP_STREAM_FMT_BGR3:
       return 1;
     default:
       return 0;
@@ -328,6 +330,14 @@ static int CAM_GetPipeOutputFormat(APP_StreamFormat_t format, int *p_output_form
       return 0;
     case APP_STREAM_FMT_RGB565:
       *p_output_format = DCMIPP_PIXEL_PACKER_FORMAT_RGB565_1;
+      *p_output_bpp = 2;
+      return 0;
+    case APP_STREAM_FMT_BGR3:
+      *p_output_format = DCMIPP_PIXEL_PACKER_FORMAT_RGB888_YUV444_1;
+      *p_output_bpp = 3;
+      return 0;
+    case APP_STREAM_FMT_JPEG:
+      *p_output_format = DCMIPP_PIXEL_PACKER_FORMAT_YUV422_1;
       *p_output_bpp = 2;
       return 0;
 

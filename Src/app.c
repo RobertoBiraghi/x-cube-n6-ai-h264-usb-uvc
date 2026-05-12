@@ -64,6 +64,8 @@
 #define APP_STREAM_PRESET_VGA_YUV422  2
 #define APP_STREAM_PRESET_VGA_GRAY8  3
 #define APP_STREAM_PRESET_VGA_RGB565  4
+#define APP_STREAM_PRESET_VGA_BGR3  5
+#define APP_STREAM_PRESET_VGA_JPEG  6
 
 #define APP_STREAM_PRESET APP_STREAM_PRESET_HD
 
@@ -146,6 +148,7 @@ static void app_main_pipe_vsync_event()
 	  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
+//remember change in send_compressed_frame
 static int send_h264_frame(uint8_t *p_buffer, int is_intra_force)
 {
   int len;
@@ -347,15 +350,7 @@ static void app_process_user_button(void)
     {
       button_press_latched = 1;
 
-#if 0
-#if 0
-      next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
-                    APP_STREAM_PRESET_VGA : APP_STREAM_PRESET_HD;
-#else
-      next_preset = (g_app_stream_preset == APP_STREAM_PRESET_HD) ?
-    		  APP_STREAM_PRESET_VGA_YUV422 : APP_STREAM_PRESET_HD;
-#endif
-#else
+      /* TEST ITERATION */
       switch (g_app_stream_preset)
       {
         case APP_STREAM_PRESET_HD:
@@ -367,11 +362,18 @@ static void app_process_user_button(void)
 			break;
 
 		case APP_STREAM_PRESET_VGA_GRAY8:
+		  next_preset = APP_STREAM_PRESET_VGA_JPEG;
+		  break;
+
+		case APP_STREAM_PRESET_VGA_JPEG:
+			next_preset = APP_STREAM_PRESET_VGA;
+		  break;
+
+		case APP_STREAM_PRESET_VGA:
 		default:
 			next_preset = APP_STREAM_PRESET_HD;
 			break;
 		}
-#endif
 
       printf("\nPreset switch call\n");
 
@@ -539,6 +541,8 @@ static const char *app_stream_format_to_string(APP_StreamFormat_t format)
       return "YUV420";
     case APP_STREAM_FMT_GRAY8:
       return "GRAY8";
+    case APP_STREAM_FMT_BGR3:
+      return "BGR3";
     default:
       return "UNKNOWN";
   }
@@ -611,6 +615,20 @@ static void app_fill_stream_preset(APP_StreamConfig_t *p_cfg, int preset_id)
       p_cfg->format = APP_STREAM_FMT_RGB565;
       break;
 
+    case 5:
+      p_cfg->width = 640;
+      p_cfg->height = 480;
+      p_cfg->fps = CAMERA_FPS;
+      p_cfg->format = APP_STREAM_FMT_BGR3;
+      break;
+
+    case 6:
+      p_cfg->width = 640;
+      p_cfg->height = 480;
+      p_cfg->fps = CAMERA_FPS;
+      p_cfg->format = APP_STREAM_FMT_JPEG;
+      break;
+
     default:
       assert(0);
   }
@@ -667,15 +685,27 @@ static int app_apply_stream_runtime_config(const APP_StreamConfig_t *p_stream_cf
 	return 0;
   }
 
-  if (p_stream_cfg->format != APP_STREAM_FMT_H264)
+#if 0
+  if ((p_stream_cfg->format != APP_STREAM_FMT_H264) || (p_stream_cfg->format != APP_STREAM_FMT_JPEG))
   {
-    /* Compressed format detected, but not supported yet */
+
+	if ((p_stream_cfg->format != APP_STREAM_FMT_H264))
+		/* Compressed format detected, but not supported yet */
+		return -1;
+  }
+#else
+  if ((p_stream_cfg->format != APP_STREAM_FMT_H264) &&
+      (p_stream_cfg->format != APP_STREAM_FMT_JPEG))
+  {
     return -1;
   }
+#endif
 
   enc_conf.width = p_stream_cfg->width;
   enc_conf.height = p_stream_cfg->height;
   enc_conf.fps = p_stream_cfg->fps;
+  enc_conf.format = p_stream_cfg->format;
+  /*TODO return Enc_Init when is not void but int*/
   ENC_Init(&enc_conf);
 
   return 0;

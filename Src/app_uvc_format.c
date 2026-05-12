@@ -51,6 +51,10 @@ int APP_UVC_FormatToPayload(APP_StreamFormat_t format, int *p_payload)
       *p_payload = UVCL_PAYLOAD_FB_GREY;
       return 0;
 
+    case APP_STREAM_FMT_BGR3:
+      *p_payload = UVCL_PAYLOAD_FB_BGR3;
+      return 0;
+
     case APP_STREAM_FMT_RGB888:
     case APP_STREAM_FMT_YUV420:
     default:
@@ -84,6 +88,9 @@ size_t APP_UVC_GetFrameSize(const APP_StreamConfig_t *p_cfg)
     case APP_STREAM_FMT_YUV420:
       return ((size_t)p_cfg->width * p_cfg->height * 3U) / 2U;
 
+    case APP_STREAM_FMT_BGR3:
+    	return (size_t)p_cfg->width * p_cfg->height * 3U;
+
     default:
       return 0;
   }
@@ -102,6 +109,7 @@ int APP_UVC_IsCompressedFormat(APP_StreamFormat_t format)
     case APP_STREAM_FMT_YUV422:
     case APP_STREAM_FMT_YUV420:
     case APP_STREAM_FMT_GRAY8:
+    case APP_STREAM_FMT_BGR3:
     default:
       return 0;
   }
